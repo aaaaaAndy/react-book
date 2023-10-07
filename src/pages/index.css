@@ -21,3 +21,12 @@
   align-items: center;
   justify-content: center;
 }
+
+.layout-main {
+  text-align: center;
+  padding: 24px;
+}
+
+.mg-8 {
+  margin: 8px;
+}

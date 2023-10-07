@@ -1,32 +1,27 @@
-import React from 'react';
-import clsx from 'clsx';
-import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
-import Layout from '@theme/Layout';
-import HomepageFeatures from '@site/src/components/HomepageFeatures';
+import React from "react";
+import useDocusaurusContext from "@docusaurus/useDocusaurusContext";
+import Link from "@docusaurus/Link";
+import Layout from "@theme/Layout";
 
-import styles from './index.module.css';
+import "./index.css";
 
-function HomepageHeader() {
-  const {siteConfig} = useDocusaurusContext();
-  return (
-    <header className={clsx('hero hero--primary', styles.heroBanner)}>
-      <div className="container">
-        <h1 className="hero__title">{siteConfig.title}</h1>
-        <p className="hero__subtitle">{siteConfig.tagline}</p>
-      </div>
-    </header>
-  );
-}
+const PRIMARY_CLASS = "button button--primary button--lg mg-8";
 
 export default function Home() {
-  const {siteConfig} = useDocusaurusContext();
+  const { siteConfig } = useDocusaurusContext();
+
   return (
-    <Layout
-      title={`Hello from ${siteConfig.title}`}
-      description="Description will go into a meta tag in <head />">
-      <HomepageHeader />
-      <main>
-        <HomepageFeatures />
+    <Layout title={siteConfig.title} description="React source code document">
+      <main className="layout-main">
+        <Link className={PRIMARY_CLASS} to="/docs/v16">
+          v16.13.1
+        </Link>
+        <Link className={PRIMARY_CLASS} to="/docs/v17">
+          v17.0.1
+        </Link>
+        <Link className={PRIMARY_CLASS} to="/docs/v18">
+          v18
+        </Link>
       </main>
     </Layout>
   );
