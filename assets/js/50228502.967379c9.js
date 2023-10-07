@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunkreact_book=self.webpackChunkreact_book||[]).push([[440],{8127:o=>{o.exports=JSON.parse('{"permalink":"/react-book/blog/tags/hola","page":1,"postsPerPage":10,"totalPages":1,"totalCount":1,"blogDescription":"Blog","blogTitle":"Blog"}')}}]);
