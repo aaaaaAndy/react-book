@@ -13,7 +13,7 @@ export default function Home() {
   return (
     <Layout title={siteConfig.title} description="React source code document">
       <main className="layout-main">
-        <Link className={PRIMARY_CLASS} to="/docs/v16">
+        <Link className={PRIMARY_CLASS} to="/docs/v16/react">
           v16.13.1
         </Link>
         <Link className={PRIMARY_CLASS} to="/docs/v17">
