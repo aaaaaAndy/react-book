@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunkreact_book=self.webpackChunkreact_book||[]).push([[1505],{758:o=>{o.exports=JSON.parse('{"permalink":"/react-book/blog/tags/docusaurus","page":1,"postsPerPage":10,"totalPages":1,"totalCount":4,"blogDescription":"Blog","blogTitle":"Blog"}')}}]);

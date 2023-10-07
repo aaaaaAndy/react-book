@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunkreact_book=self.webpackChunkreact_book||[]).push([[3766],{2664:a=>{a.exports=JSON.parse('{"label":"facebook","permalink":"/react-book/blog/tags/facebook","allTagsPath":"/react-book/blog/tags","count":1}')}}]);
