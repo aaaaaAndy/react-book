@@ -374,11 +374,14 @@ function workLoopSync() {
 
 ## 处理不同类型组件
 
-- [开始处理AppComponent](开始处理AppComponent)
 - [开始处理HostRoot](开始处理HostRoot)
+- [开始处理AppComponent](开始处理AppComponent)
 - [开始处理原生DOM](开始处理原生DOM)
 
 ## `finishSyncRender` 开始 Commit
+
+ - 清空 `workInProgressRoot`
+ - 调用 `commitRoot` 开启 commit 阶段
 
 ```javascript
 function finishSyncRender(root) {
@@ -437,9 +440,11 @@ function commitRootImpl(root, renderPriorityLevel) {
 }
 ```
 
-## `commitBeforeMutationEffects`
+## `commitBeforeMutationEffects` 更新前
 
-主要执行 `getSnapshotBeforeUpdate` 生命周期方法
+该函数主要有两个功能：
+ - 执行 `getSnapshotBeforeUpdate` 生命周期方法
+ - 对 `useEffect` 进行调度，让 DOM 此次同步更新任务完成后可以调度执行 `useEffect` 中的回调函数
 
 ```javascript
 function commitBeforeMutationEffects() {
@@ -460,7 +465,8 @@ function commitBeforeMutationEffects() {
       // the earliest opportunity.
       if (!rootDoesHavePassiveEffects) {
         rootDoesHavePassiveEffects = true;
-        scheduleCallback(NormalPriority, function () {
+        scheduleCallback(NormalPriority, functiono () {
+          // 调度 useEffect
           flushPassiveEffects();
           return null;
         });
@@ -472,55 +478,211 @@ function commitBeforeMutationEffects() {
 }
 ```
 
-## `commitMutationEffects`
+## `commitBeforeMutationLifeCycles`
+
+只对 `ClassComponent` 进行处理，执行  `getSnapshotBeforeUpdate` 生命周期方法
+
+```javascript
+function commitBeforeMutationLifeCycles(
+  current: Fiber | null,
+  finishedWork: Fiber,
+): void {
+  switch (finishedWork.tag) {
+    case FunctionComponent:
+    case ForwardRef:
+    case SimpleMemoComponent:
+    case Block: {
+      return;
+    }
+    case ClassComponent: {
+      if (finishedWork.effectTag & Snapshot) {
+        if (current !== null) {
+          const prevProps = current.memoizedProps;
+          const prevState = current.memoizedState;
+          const instance = finishedWork.stateNode;
+          // We could update instance props and state here,
+          // but instead we rely on them being set during last render.
+          // 调用 getSnapshotBeforeUpdate 方法，在该方法里可以拿到更新前的DOM
+          const snapshot = instance.getSnapshotBeforeUpdate(
+            finishedWork.elementType === finishedWork.type
+              ? prevProps
+              : resolveDefaultProps(finishedWork.type, prevProps),
+            prevState,
+          );
+          instance.__reactInternalSnapshotBeforeUpdate = snapshot;
+        }
+      }
+      return;
+    }
+    case HostRoot:
+    case HostComponent:
+    case HostText:
+    case HostPortal:
+    case IncompleteClassComponent:
+      // Nothing to do for these component types
+      return;
+  }
+}
+```
+
+## `flushPassiveEffects`
+
+该函数经过 `scheduleCallback` 调度后，最终调用 `flushPassiveEffectsImpl` 函数
+
+使用 `scheduleCallback` 调度，使得 `flushPassiveEffects` 可以异步执行jjjj。
+
+```javascript
+scheduleCallback(NormalPriority, function () {
+  flushPassiveEffects();
+  return null;
+});
+
+// 确定优先级，调度执行 flushPassiveEffectsImpl 函数
+function flushPassiveEffects() {
+  if (pendingPassiveEffectsRenderPriority !== NoPriority) {
+    var priorityLevel = pendingPassiveEffectsRenderPriority > NormalPriority ? NormalPriority : pendingPassiveEffectsRenderPriority;
+    pendingPassiveEffectsRenderPriority = NoPriority;
+    return runWithPriority$1(priorityLevel, flushPassiveEffectsImpl);
+  }
+}
+```
+
+## `flushPassiveEffectsImpl`
+
+`flushPassiveEffects` 最终调用 `flushPassiveEffectsImpl` 函数。
+
+在 `flushPassiveEffectsImpl` 函数中，最终还是调用 `commitPassiveHookEffects` 函数
+
+```javascript
+function flushPassiveEffectsImpl() {
+  {
+    var _effect2 = root.current.firstEffect;
+
+    while (_effect2 !== null) {
+      {
+        invokeGuardedCallback(null, commitPassiveHookEffects, null, _effect2);
+      }
+
+      var nextNextEffect = _effect2.nextEffect; // Remove nextEffect pointer to assist GC
+
+      _effect2.nextEffect = null;
+      _effect2 = nextNextEffect;
+    }
+  }
+
+  return true;
+}
+```
+
+## `commitPassiveHookEffects`
+
+该函数内部主要针对 `FunctionComponent` 类型 fiber 执行两个函数：
+
+ - `commitHookEffectListUnmount`：执行 `useEffect` 的销毁函数
+ - `commitHookEffectListMount`：执行 `useEffect` 函数
+
+可以看到在调用两个 `commit` 函数的时候都传入了 `Passive$1 | HasEffect`，这也决定了此处是对 `useEffect` 的处理，因为在初始化 `useEffect` 时，传入的就是 `PassiveEffect`，而初始化 `useLayoutEffect` 时传入的是 `HookLayout`。
+
+```javascript
+function commitPassiveHookEffects(finishedWork) {
+  if ((finishedWork.effectTag & Passive) !== NoEffect) {
+    switch (finishedWork.tag) {
+      case FunctionComponent:
+      case ForwardRef:
+      case SimpleMemoComponent:
+      case Block:
+        {
+          // TODO (#17945) We should call all passive destroy functions (for all fibers)
+          // before calling any create functions. The current approach only serializes
+          // these for a single fiber.
+          commitHookEffectListUnmount(Passive$1 | HasEffect, finishedWork);
+          commitHookEffectListMount(Passive$1 | HasEffect, finishedWork);
+          break;
+        }
+    }
+  }
+}
+```
+
+## `commitHookEffectListUnmount`
+
+执行 `useEffect` 对应的销毁函数。
+
+```javascript
+function commitHookEffectListUnmount(tag, finishedWork) {
+  var updateQueue = finishedWork.updateQueue;
+  var lastEffect = updateQueue !== null ? updateQueue.lastEffect : null;
+
+  if (lastEffect !== null) {
+    var firstEffect = lastEffect.next;
+    var effect = firstEffect;
+
+    do {
+      if ((effect.tag & tag) === tag) {
+        // Unmount
+        var destroy = effect.destroy;
+        effect.destroy = undefined;
+
+        if (destroy !== undefined) {
+          destroy();
+        }
+      }
+
+      effect = effect.next;
+    } while (effect !== firstEffect);
+  }
+}
+```
+
+## `commitHookEffectListMount`
+
+执行 `useEffect` 钩子函数，因为 `flushPassiveEffects` 是通过 `scheduleCallback` 调度执行，所以这里的钩子函数也不是马上同步执行，而是等到本次更新任务完成后，浏览器有空闲时才会执行，这也是 `useEffect` 异步执行的原因。
+
+由此可以得出 `useEffect` 的执行顺序在 `useLayoutEffect` 之后。
+
+```javascript
+function commitHookEffectListMount(tag, finishedWork) {
+  var updateQueue = finishedWork.updateQueue;
+  var lastEffect = updateQueue !== null ? updateQueue.lastEffect : null;
+
+  if (lastEffect !== null) {
+    var firstEffect = lastEffect.next;
+    var effect = firstEffect;
+
+    do {
+      if ((effect.tag & tag) === tag) {
+        // Mount
+        var create = effect.create;
+        effect.destroy = create();
+      }
+
+      effect = effect.next;
+    } while (effect !== firstEffect);
+  }
+}
+```
+
+## `commitMutationEffects` 更新时
+
+把调度阶段形成的真实 DOM 树挂载在 root 节点下。
 
 ```javascript
 function commitMutationEffects(root, renderPriorityLevel) {
-  // TODO: Should probably move the bulk of this function to commitWork.
   while (nextEffect !== null) {
     var primaryEffectTag = effectTag & (Placement | Update | Deletion | Hydrating);
 
     switch (primaryEffectTag) {
       case Placement:
         {
-          commitPlacement(nextEffect); // Clear the "placement" from effect tag so that we know that this is
+          commitPlacement(nextEffect); 
+          // Clear the "placement" from effect tag so that we know that this is
           // inserted, before any life-cycles like componentDidMount gets called.
-          // TODO: findDOMNode doesn't rely on this any more but isMounted does
-          // and isMounted is deprecated anyway so we should be able to kill this.
 
           nextEffect.effectTag &= ~Placement;
           break;
         }
     } 
 
-    recordEffect();
-    resetCurrentFiber();
-    nextEffect = nextEffect.nextEffect;
-  }
-}
-```
-
-## `commitLayoutEffects`
-
-```javascript
-function commitLayoutEffects(root, committedExpirationTime) {
-  // TODO: Should probably move the bulk of this function to commitWork.
-  while (nextEffect !== null) {
-    setCurrentFiber(nextEffect);
-    var effectTag = nextEffect.effectTag;
-
-    if (effectTag & (Update | Callback)) {
-      recordEffect();
-      var current = nextEffect.alternate;
-      commitLifeCycles(root, current, nextEffect);
-    }
-
-    if (effectTag & Ref) {
-      recordEffect();
-      commitAttachRef(nextEffect);
-    }
-
-    resetCurrentFiber();
     nextEffect = nextEffect.nextEffect;
   }
 }
@@ -528,9 +690,11 @@ function commitLayoutEffects(root, committedExpirationTime) {
 
 ## `commitPlacement`
 
+找到 `parentFiber` ，执行 `insertOrAppendPlacementNodeIntoContainer` 将子树插入 `parentFiber` 中。
+
 ```javascript
 function commitPlacement(finishedWork) {
-  var parentFiber = getHostParentFiber(finishedWork); // Note: these two variables *must* always be updated together.
+  var parentFiber = getHostParentFiber(finishedWork);
 
   var parent;
   var isContainer;
@@ -597,56 +761,68 @@ function insertOrAppendPlacementNodeIntoContainer(node, before, parent) {
 }
 ```
 
+## `commitLayoutEffects` 更新后
+
+主要执行一些DOM更新后的生命周期以及回调函数
+
+```javascript
+function commitLayoutEffects(root, committedExpirationTime) {
+  // TODO: Should probably move the bulk of this function to commitWork.
+  while (nextEffect !== null) {
+    var effectTag = nextEffect.effectTag;
+
+    if (effectTag & (Update | Callback)) {
+      var current = nextEffect.alternate;
+      commitLifeCycles(root, current, nextEffect);
+    }
+
+    nextEffect = nextEffect.nextEffect;
+  }
+}
+```
+
 ## `commitLifeCycles`
+
+执行 DOM 提交后需要执行的生命周期，如： `componentDidMount`、`componentDidUpdate`、`useLayoutEffect`等
 
 ```javascript
 function commitLifeCycles(finishedRoot, current, finishedWork, committedExpirationTime) {
   switch (finishedWork.tag) {
+    case FunctionComponent:
+    case ForwardRef:
+    case SimpleMemoComponent:
+    case Block: {
+      // At this point layout effects have already been destroyed (during mutation phase).
+      // This is done to prevent sibling component effects from interfering with each other,
+      // e.g. a destroy function in one component should never override a ref set
+      // by a create function in another component during the same commit.
+      // 传入的是 HookLayout，说明这里会执行 useLayoutEffect 钩子
+      commitHookEffectListMount(HookLayout | HookHasEffect, finishedWork);
+
+      if (runAllPassiveEffectDestroysBeforeCreates) {
+        schedulePassiveEffects(finishedWork);
+      }
+      return;
+    }
     case ClassComponent:
       {
         var instance = finishedWork.stateNode;
 
         if (finishedWork.effectTag & Update) {
           if (current === null) {
-            startPhaseTimer(finishedWork, 'componentDidMount'); // We could update instance props and state here,
             // but instead we rely on them being set during last render.
             // TODO: revisit this when we implement resuming.
 
-            {
-              if (finishedWork.type === finishedWork.elementType && !didWarnAboutReassigningProps) {
-                if (instance.props !== finishedWork.memoizedProps) {
-                  error('Expected %s props to match memoized props before ' + 'componentDidMount. ' + 'This might either be because of a bug in React, or because ' + 'a component reassigns its own `this.props`. ' + 'Please file an issue.', getComponentName(finishedWork.type) || 'instance');
-                }
-
-                if (instance.state !== finishedWork.memoizedState) {
-                  error('Expected %s state to match memoized state before ' + 'componentDidMount. ' + 'This might either be because of a bug in React, or because ' + 'a component reassigns its own `this.props`. ' + 'Please file an issue.', getComponentName(finishedWork.type) || 'instance');
-                }
-              }
-            }
-
-            // 执行 componentDidMount
+            // current 不存在，说明是第一次渲染，执行 componentDidMount
             instance.componentDidMount();
             stopPhaseTimer();
           } else {
             var prevProps = finishedWork.elementType === finishedWork.type ? current.memoizedProps : resolveDefaultProps(finishedWork.type, current.memoizedProps);
             var prevState = current.memoizedState;
-            startPhaseTimer(finishedWork, 'componentDidUpdate'); // We could update instance props and state here,
             // but instead we rely on them being set during last render.
             // TODO: revisit this when we implement resuming.
 
-            {
-              if (finishedWork.type === finishedWork.elementType && !didWarnAboutReassigningProps) {
-                if (instance.props !== finishedWork.memoizedProps) {
-                  error('Expected %s props to match memoized props before ' + 'componentDidUpdate. ' + 'This might either be because of a bug in React, or because ' + 'a component reassigns its own `this.props`. ' + 'Please file an issue.', getComponentName(finishedWork.type) || 'instance');
-                }
-
-                if (instance.state !== finishedWork.memoizedState) {
-                  error('Expected %s state to match memoized state before ' + 'componentDidUpdate. ' + 'This might either be because of a bug in React, or because ' + 'a component reassigns its own `this.props`. ' + 'Please file an issue.', getComponentName(finishedWork.type) || 'instance');
-                }
-              }
-            }
-
-            // 执行 componentDidUpdate
+            // current存在，说明是组件更新，执行 componentDidUpdate
             instance.componentDidUpdate(prevProps, prevState, instance.__reactInternalSnapshotBeforeUpdate);
             stopPhaseTimer();
           }
@@ -655,21 +831,10 @@ function commitLifeCycles(finishedRoot, current, finishedWork, committedExpirati
         var updateQueue = finishedWork.updateQueue;
 
         if (updateQueue !== null) {
-          {
-            if (finishedWork.type === finishedWork.elementType && !didWarnAboutReassigningProps) {
-              if (instance.props !== finishedWork.memoizedProps) {
-                error('Expected %s props to match memoized props before ' + 'processing the update queue. ' + 'This might either be because of a bug in React, or because ' + 'a component reassigns its own `this.props`. ' + 'Please file an issue.', getComponentName(finishedWork.type) || 'instance');
-              }
-
-              if (instance.state !== finishedWork.memoizedState) {
-                error('Expected %s state to match memoized state before ' + 'processing the update queue. ' + 'This might either be because of a bug in React, or because ' + 'a component reassigns its own `this.props`. ' + 'Please file an issue.', getComponentName(finishedWork.type) || 'instance');
-              }
-            }
-          } // We could update instance props and state here,
           // but instead we rely on them being set during last render.
           // TODO: revisit this when we implement resuming.
 
-
+          // 执行更新后的一些回调函数，如setState的回调等
           commitUpdateQueue(finishedWork, updateQueue, instance);
         }
 
@@ -720,5 +885,55 @@ function commitLifeCycles(finishedRoot, current, finishedWork, committedExpirati
 }
 ```
 
+## `commitUpdateQueue`
 
+主要执行该 fiber 上保存的回调函数，如果是 `HostRoot`，则执行的是 `ReactDOM.render` 函数的回调函数，如果是 `ClassComponent` 则执行的是 `this.setState` 的回调函数。
 
+```javascript
+export function commitUpdateQueue<State>(
+  finishedWork: Fiber,
+  finishedQueue: UpdateQueue<State>,
+  instance: any,
+): void {
+  // Commit the effects
+  const effects = finishedQueue.effects;
+  finishedQueue.effects = null;
+  if (effects !== null) {
+    for (let i = 0; i < effects.length; i++) {
+      const effect = effects[i];
+      const callback = effect.callback;
+      if (callback !== null) {
+        effect.callback = null;
+        callCallback(callback, instance);
+      }
+    }
+  }
+}
+```
+
+## `commitMount`
+
+判断如果是原生 DOM 且需要自动 focus 时就执行 `focus` 方法。
+
+```javascript
+export function commitMount(
+  domElement: Instance,
+  type: string,
+  newProps: Props,
+  internalInstanceHandle: Object,
+): void {
+  // Despite the naming that might imply otherwise, this method only
+  // fires if there is an `Update` effect scheduled during mounting.
+  // This happens if `finalizeInitialChildren` returns `true` (which it
+  // does to implement the `autoFocus` attribute on the client). But
+  // there are also other cases when this might happen (such as patching
+  // up text content during hydration mismatch). So we'll check this again.
+  if (shouldAutoFocusHostComponent(type, newProps)) {
+    ((domElement: any):
+      | HTMLButtonElement
+      | HTMLInputElement
+      | HTMLSelectElement
+      | HTMLTextAreaElement).focus();
+  }
+}
+```
