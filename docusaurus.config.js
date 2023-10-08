@@ -106,6 +106,11 @@ const config = {
         theme: lightCodeTheme,
         darkTheme: darkCodeTheme,
       },
+      docs: {
+        sidebar: {
+          hideable: true,
+        },
+      },
       zoom: {
         selector: '.markdown :not(em) > img',
         background: {
